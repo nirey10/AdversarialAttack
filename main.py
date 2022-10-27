@@ -1,5 +1,7 @@
 import argparse
+import os
 
+import cv2.cv2
 import torch
 import torchvision.models as models
 import torchvision.datasets as datasets
@@ -15,7 +17,7 @@ parser.add_argument('--model_name', type=str, default='vgg16', required=False, h
 parser.add_argument('--smodel_name', type=str, default='inception_v3, resnet50',
                     help='One or more surrogate models to use (enter all names, separated by spaces).')
 parser.add_argument('--targeted', action='store_true', help='If true, perform targeted attack; else, untargeted.')
-parser.add_argument('--min_attack_samples', type=int, default=3, help="Number of 'outer' SimBA iterations. Note that each "
+parser.add_argument('--min_attack_samples', type=int, default=2, help="Number of 'outer' SimBA iterations. Note that each "
                                                              "iteration may consume 1 or 2 queries.")
 parser.add_argument('--num_sample', default=10, type=int, help='Number of sample images to attack.')
 
@@ -32,6 +34,10 @@ parser.add_argument('--net_specific_resampling', action='store_true',
 args = parser.parse_args()
 
 epsilons = [0, .05, .1, .15, .2, .25, .3]
+
+output_folder = '../datasets/pertubated_images'
+if not os.path.exists(output_folder):
+    os.mkdir(output_folder)
 
 # FGSM attack code
 def fgsm_attack(image, epsilon, data_grad):
@@ -90,14 +96,14 @@ imagenet_path = '../datasets/imagenet'
 dataset = datasets.ImageNet(imagenet_path, split='val', transform=data_transform)
 
 # if args.data_index_set == 'imagenet_val_random':
-input_index_list = torch.randperm(len(dataset))[:args.num_sample]
+# input_index_list = torch.randperm(len(dataset))[:args.num_sample]
 # else:
 #     input_index_list = getattr(eval_sets, args.data_index_set)[:args.num_sample]
 
 if args.targeted:
     target_class_list = []
 
-for i, s in enumerate(input_index_list):
+for i, s in enumerate(range(len(dataset))):
     (image, label) = dataset[s]
     image.unsqueeze_(0)
     label = torch.LongTensor([label])
@@ -140,10 +146,16 @@ for i, s in enumerate(input_index_list):
 
                 if label != class_attacked:
                     attacked_samples.append(attacked_image)  # TODO: add documentation on which model it was attacked on?
+                    break
 
 
-        if len(attacked_samples) > args.min_attack_samples:
-            # TODO: save all the pertubated images
-            pass
+        if len(attacked_samples) >= args.min_attack_samples:
+            image_data_path = os.path.join(output_folder, 'sample_' + str(i).zfill(6))
+            if not os.path.exists(image_data_path):
+                os.mkdir(image_data_path)
+
+            for idx, pertubated_image in enumerate(attacked_samples):
+                image_path = os.path.join(image_data_path, 'pertubation_' + str(idx).zfill(2) + '.jpg')
+                cv2.imwrite(image_path, np.array(pertubated_image.squeeze(dim=0).detach().numpy() * 255, dtype=np.uint8).transpose(1, 2, 0))
         else:
             continue
